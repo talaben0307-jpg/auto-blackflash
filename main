@@ -1,0 +1,113 @@
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local LocalPlayer = Players.LocalPlayer
+
+if CoreGui:FindFirstChild("JJS_Skill3NoRotate") then
+    CoreGui.JJS_Skill3NoRotate:Destroy()
+end
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "JJS_Skill3NoRotate"
+ScreenGui.Parent = CoreGui
+ScreenGui.ResetOnSpawn = false
+
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Parent = ScreenGui
+ToggleButton.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+ToggleButton.Position = UDim2.new(0, 50, 0, 200)
+ToggleButton.Size = UDim2.new(0, 190, 0, 42)
+ToggleButton.Font = Enum.Font.GothamBold
+ToggleButton.Text = "⚡ Skill 3 (No Rotate): ON"
+ToggleButton.TextColor3 = Color3.fromRGB(80, 255, 80)
+ToggleButton.TextSize = 13
+ToggleButton.Draggable = true
+
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 8)
+UICorner.Parent = ToggleButton
+
+local isEnabled = true
+local isExecuting = false
+
+local function getClosestPlayer()
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    local localChar = LocalPlayer.Character
+    
+    if not localChar or not localChar:FindFirstChild("HumanoidRootPart") then return nil end
+    local myRootPos = localChar.HumanoidRootPart.Position
+
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+            local humanoid = p.Character:FindFirstChildOfClass("Humanoid")
+            if hrp and humanoid and humanoid.Health > 0 then
+                local distance = (hrp.Position - myRootPos).Magnitude
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    closestPlayer = p
+                end
+            end
+        end
+    end
+    return closestPlayer
+end
+
+local function executeCombo()
+    if isExecuting then return end
+    isExecuting = true
+    
+    local localChar = LocalPlayer.Character
+    local target = getClosestPlayer()
+    
+    if localChar and localChar:FindFirstChild("HumanoidRootPart") and target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+        local myHrp = localChar.HumanoidRootPart
+        local targetHrp = target.Character.HumanoidRootPart
+        
+        -- Giữ nguyên hướng nhìn hiện tại của nhân vật, chỉ dịch chuyển vị trí ra sau lưng
+        local currentOrientation = myHrp.CFrame - myHrp.Position
+        myHrp.CFrame = (targetHrp.CFrame * CFrame.new(0, 0, 3.5)) + currentOrientation.Position
+        -- Nếu dòng trên bị lệch vị trí, dùng cách lấy góc xoay gốc:
+        -- myHrp.CFrame = CFrame.new((targetHrp.CFrame * CFrame.new(0, 0, 3.5)).Position) * (myHrp.CFrame - myHrp.Position)
+        
+        task.wait(0.04)
+        
+        -- Bấm lần 1 cho Chiêu 3
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Three, false, game)
+        task.wait(0.04)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Three, false, game)
+        
+        -- Khoảng chờ timing
+        task.wait(0.25)
+        
+        -- Bấm lần 2 cho Chiêu 3
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Three, false, game)
+        task.wait(0.04)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Three, false, game)
+    end
+    
+    task.wait(0.2)
+    isExecuting = false
+end
+
+ToggleButton.MouseButton1ClientClick = ToggleButton.MouseButton1Click:Connect(function()
+    isEnabled = not isEnabled
+    if isEnabled then
+        ToggleButton.Text = "⚡ Skill 3 (No Rotate): ON"
+        ToggleButton.TextColor3 = Color3.fromRGB(80, 255, 80)
+    else
+        ToggleButton.Text = "⚡ Skill 3 (No Rotate): OFF"
+        ToggleButton.TextColor3 = Color3.fromRGB(255, 80, 80)
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.E then
+        if isEnabled then
+            executeCombo()
+        end
+    end
+end)
