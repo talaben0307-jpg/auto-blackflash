@@ -1,53 +1,262 @@
 --[[
-    JJS Auto Black Flash (Skill 3 - Yuji)
-    - Tự động bấm phím 3 lần thứ hai sau 0.35 giây để ra Black Flash hoàn hảo.
+    Fluent-Style UI Hub 
+    - Phím tắt bật/tắt: L
+    - Có nút lơ lửng kéo thả được
+    - Giao diện chuẩn Fluent UI (Sidebar + Content)
 ]]
 
-local UserInputService = game:GetService("UserInputService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
+local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local LocalPlayer = Players.LocalPlayer
 
-local enabled = false
-local delayTime = 0.35 -- Thời gian chuẩn từ 0.3s đến 0.4s
+local TOGGLE_KEY = Enum.KeyCode.L
 
--- Tạo nút bấm bật/tắt nhanh trên màn hình
+-- Dọn dẹp bản chạy trước
+local env = (getgenv and getgenv()) or _G
+if env.FluentHubCleanup then pcall(env.FluentHubCleanup) end
+
 local parentGui = (gethui and gethui()) or CoreGui
-if parentGui:FindFirstChild("JJS_AutoBF") then parentGui.JJS_AutoBF:Destroy() end
+local connections = {}
+local function track(c) table.insert(connections, c) return c end
 
-local screenGui = Instance.new("ScreenGui", parentGui)
-screenGui.Name = "JJS_AutoBF"
+-- Giao diện chuẩn Fluent UI (Dark Theme + Accent Neon)
+local Theme = {
+    Background = Color3.fromRGB(15, 15, 20),
+    Panel = Color3.fromRGB(22, 22, 30),
+    Element = Color3.fromRGB(30, 30, 42),
+    Hover = Color3.fromRGB(40, 40, 56),
+    Stroke = Color3.fromRGB(45, 45, 65),
+    Accent = Color3.fromRGB(0, 229, 255),
+    Accent2 = Color3.fromRGB(170, 80, 255),
+    Text = Color3.fromRGB(240, 240, 245),
+    SubText = Color3.fromRGB(150, 150, 175),
+    Danger = Color3.fromRGB(255, 75, 75),
+}
 
-local btn = Instance.new("TextButton", screenGui)
-btn.Size = UDim2.new(0, 160, 0, 40)
-btn.Position = UDim2.new(0, 50, 0, 200)
-btn.BackgroundColor3 = Color3.fromRGB(19, 19, 28)
-btn.TextColor3 = Color3.fromRGB(0, 229, 255)
-btn.Font = Enum.Font.GothamBold
-btn.TextSize = 12
-btn.Text = "Auto Black Flash: TẮT"
-Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
-
-local stroke = Instance.new("UIStroke", btn)
-stroke.Color = Color3.fromRGB(0, 229, 255)
-stroke.Thickness = 1.5
-
--- Bật/Tắt khi bấm vào nút
-btn.MouseButton1Click:Connect(function()
-    enabled = not enabled
-    btn.Text = "Auto Black Flash: " .. (enabled and "BẬT" or "TẮT")
-    stroke.Color = enabled and Color3.fromRGB(70, 220, 120) or Color3.fromRGB(0, 229, 255)
-end)
-
--- Tự động nhịp phím 3 lần thứ hai
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if not enabled or gameProcessed then return end
-    
-    if input.KeyCode == Enum.KeyCode.Three or input.KeyCode == Enum.KeyCode.Alpha3 then
-        task.spawn(function()
-            task.wait(delayTime)
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Three, false, game)
-            task.wait(0.05)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Three, false, game)
-        end)
+local function create(class, props, children)
+    local inst = Instance.new(class)
+    if inst:IsA("GuiObject") then inst.BorderSizePixel = 0 end
+    local parent
+    for k, v in pairs(props or {}) do
+        if k == "Parent" then parent = v else inst[k] = v end
     end
+    for _, ch in ipairs(children or {}) do ch.Parent = inst end
+    inst.Parent = parent
+    return inst
+end
+
+local function corner(r) return create("UICorner", { CornerRadius = UDim.new(0, r) }) end
+local function stroke(color, thickness)
+    return create("UIStroke", { Color = color, Thickness = thickness or 1, ApplyStrokeMode = Enum.ApplyStrokeMode.Border })
+end
+
+-- Hàm hỗ trợ kéo thả (Draggable) cho cả Menu và Nút lơ lửng
+local function makeDraggable(handle, target)
+    local dragging, moved = false, false
+    local startPos, startInput
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            moved = false
+            startInput = input.Position
+            startPos = target.Position
+        end
+    end)
+    track(UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - startInput
+            if delta.Magnitude > 5 then moved = true end
+            if moved then
+                target.Position = UDim2.new(
+                    startPos.X.Scale, startPos.X.Offset + delta.X,
+                    startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                )
+            end
+        end
+    end))
+    track(UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end))
+    return function() return moved end
+end
+
+-- Khởi tạo ScreenGui
+local MainGui = create("ScreenGui", { Name = "FluentHubMain", ResetOnSpawn = false, Parent = parentGui })
+local FloatGui = create("ScreenGui", { Name = "FluentHubFloat", ResetOnSpawn = false, Enabled = false, Parent = parentGui })
+
+-- ================= KHUNG MENU CHÍNH =================
+local MainFrame = create("Frame", {
+    Parent = MainGui,
+    AnchorPoint = Vector2.new(0.5, 0.5),
+    Position = UDim2.new(0.5, 0, 0.5, 0),
+    Size = UDim2.new(0, 560, 0, 360),
+    BackgroundColor3 = Theme.Background,
+}, { corner(12), stroke(Theme.Stroke, 1.5) })
+
+-- Thanh tiêu đề (TopBar) dùng để kéo thả menu
+local TopBar = create("Frame", {
+    Parent = MainFrame,
+    Size = UDim2.new(1, 0, 0, 42),
+    BackgroundColor3 = Theme.Panel,
+}, { corner(12) })
+create("Frame", { Parent = TopBar, Position = UDim2.new(0, 0, 1, -10), Size = UDim2.new(1, 0, 0, 10), BackgroundColor3 = Theme.Panel })
+
+create("TextLabel", {
+    Parent = TopBar, BackgroundTransparency = 1,
+    Position = UDim2.new(0, 16, 0, 0), Size = UDim2.new(1, -100, 1, 0),
+    Font = Enum.Font.GothamBold, Text = "⚡ Fluent UI Hub", TextSize = 14,
+    TextColor3 = Theme.Accent, TextXAlignment = Enum.TextXAlignment.Left,
+})
+
+makeDraggable(TopBar, MainFrame)
+
+-- Nút đóng và thu nhỏ trên TopBar
+local function topButton(text, xOff, hoverColor, cb)
+    local b = create("TextButton", {
+        Parent = TopBar, AnchorPoint = Vector2.new(1, 0.5),
+        Position = UDim2.new(1, xOff, 0.5, 0), Size = UDim2.new(0, 28, 0, 28),
+        BackgroundColor3 = Theme.Element, Font = Enum.Font.GothamBold, Text = text,
+        TextSize = 12, TextColor3 = Theme.Text, AutoButtonColor = false,
+    }, { corner(6) })
+    b.MouseEnter:Connect(function() b.BackgroundColor3 = hoverColor end)
+    b.MouseLeave:Connect(function() b.BackgroundColor3 = Theme.Element end)
+    b.MouseButton1Click:Connect(cb)
+    return b
+end
+
+-- ================= NÚT LƠ LỬNG (FLOATING BUTTON) =================
+local FloatBtn = create("TextButton", {
+    Parent = FloatGui,
+    BackgroundColor3 = Theme.Panel,
+    Position = UDim2.new(0, 50, 0, 200),
+    Size = UDim2.new(0, 54, 0, 54),
+    Font = Enum.Font.GothamBold,
+    Text = "HUB",
+    TextSize = 12,
+    TextColor3 = Theme.Accent,
+    AutoButtonColor = false,
+}, { corner(27), stroke(Theme.Accent, 2) })
+
+local floatWasDragged = makeDraggable(FloatBtn, FloatBtn)
+
+-- Hàm ẩn/hiện menu qua lại với nút lơ lửng
+local function setVisible(state)
+    MainFrame.Visible = state
+    FloatGui.Enabled = not state
+end
+
+topButton("X", -10, Theme.Danger, function()
+    if env.FluentHubCleanup then env.FluentHubCleanup() end
 end)
+topButton("–", -44, Theme.Hover, function() setVisible(false) end)
+
+FloatBtn.MouseButton1Click:Connect(function()
+    if floatWasDragged() then return end
+    setVisible(true)
+end)
+
+-- ================= BỐ CỤC SIDEBAR & CONTENT (CHUẨN FLUENT) =================
+local Sidebar = create("ScrollingFrame", {
+    Parent = MainFrame,
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 12, 0, 54),
+    Size = UDim2.new(0, 140, 1, -66),
+    CanvasSize = UDim2.new(0, 0, 0, 0),
+    AutomaticCanvasSize = Enum.AutomaticSize.Y,
+    ScrollBarThickness = 0,
+}, {
+    create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 6) }),
+})
+
+local ContentContainer = create("Frame", {
+    Parent = MainFrame,
+    BackgroundTransparency = 1,
+    Position = UDim2.new(0, 164, 0, 54),
+    Size = UDim2.new(1, -176, 1, -66),
+    ClipsDescendants = true,
+})
+
+-- Tạo Tab đơn giản mẫu
+local function createTab(name, icon)
+    local btn = create("TextButton", {
+        Parent = Sidebar,
+        Size = UDim2.new(1, 0, 0, 36),
+        BackgroundColor3 = Theme.Element,
+        BackgroundTransparency = 1,
+        Font = Enum.Font.GothamSemibold,
+        Text = (icon and (icon .. " ") or "") .. name,
+        TextSize = 13,
+        TextColor3 = Theme.SubText,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        AutoButtonColor = false,
+    }, { corner(6), create("UIPadding", { PaddingLeft = UDim.new(0, 12) }) })
+
+    local page = create("ScrollingFrame", {
+        Parent = ContentContainer,
+        BackgroundTransparency = 1,
+        Size = UDim2.new(1, 0, 1, 0),
+        Visible = false,
+        CanvasSize = UDim2.new(0, 0, 0, 0),
+        AutomaticCanvasSize = Enum.AutomaticSize.Y,
+        ScrollBarThickness = 3,
+        ScrollBarImageColor3 = Theme.Accent,
+    }, {
+        create("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Padding = UDim.new(0, 8) }),
+        create("UIPadding", { PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 8) }),
+    })
+
+    return btn, page
+end
+
+-- Thêm Tab mẫu: Home & Cài đặt
+local tab1Btn, tab1Page = createTab("Trang chủ", "🏠")
+local tab2Btn, tab2Page = createTab("Cài đặt", "⚙️")
+
+local function selectTab(b, p)
+    tab1Btn.BackgroundTransparency = 1 tab1Btn.TextColor3 = Theme.SubText tab1Page.Visible = false
+    tab2Btn.BackgroundTransparency = 1 tab2Btn.TextColor3 = Theme.SubText tab2Page.Visible = false
+
+    b.BackgroundTransparency = 0.3 b.TextColor3 = Theme.Accent
+    p.Visible = true
+end
+
+tab1Btn.MouseButton1Click:Connect(function() selectTab(tab1Btn, tab1Page) end)
+tab2Btn.MouseButton1Click:Connect(function() selectTab(tab2Btn, tab2Page) end)
+selectTab(tab1Btn, tab1Page) -- Mặc định mở Tab 1
+
+-- Thêm nút mẫu vào Tab 1
+local sampleBtn = create("TextButton", {
+    Parent = tab1Page,
+    Size = UDim2.new(1, 0, 0, 40),
+    BackgroundColor3 = Theme.Element,
+    Font = Enum.Font.Gotham,
+    Text = "✨ Nút tính năng mẫu",
+    TextSize = 13,
+    TextColor3 = Theme.Text,
+    AutoButtonColor = false,
+}, { corner(8), stroke(Theme.Stroke, 1) })
+
+sampleBtn.MouseButton1Click:Connect(function()
+    print("Đã bấm nút tính năng!")
+end)
+
+-- ================= PHÍM TẮT L & DỌN DẸP =================
+track(UserInputService.InputBegan:Connect(function(input, gp)
+    if not gp and input.KeyCode == TOGGLE_KEY then
+        setVisible(not MainFrame.Visible)
+    end
+end))
+
+local function cleanup()
+    for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
+    table.clear(connections)
+    MainGui:Destroy()
+    FloatGui:Destroy()
+    env.FluentHubCleanup = nil
+end
+env.FluentHubCleanup = cleanup
